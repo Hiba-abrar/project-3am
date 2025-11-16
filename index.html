@@ -1,0 +1,924 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NED University Navigation - Complete Google Maps</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Roboto', Arial, sans-serif; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { background: #4285f4; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
+        .nav-controls { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .control-group { margin-bottom: 15px; }
+        .control-group label { display: block; margin-bottom: 5px; font-weight: 500; color: #333; }
+        .control-group select, .control-group button { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .control-group button { background: #4285f4; color: white; border: none; cursor: pointer; font-weight: 500; }
+        .control-group button:hover { background: #3367d6; }
+        .map-container { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        #map { height: 500px; width: 100%; }
+        .directions-panel { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .status-item { padding: 10px; margin: 5px 0; border-radius: 4px; }
+        .status-ready { background: #e8f5e8; color: #2e7d32; }
+        .status-active { background: #e3f2fd; color: #1976d2; }
+        .status-warning { background: #fff3e0; color: #f57c00; }
+        .route-info { background: #f8f9fa; padding: 15px; border-radius: 4px; margin: 10px 0; border-left: 4px solid #4285f4; }
+        .voice-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 15px; }
+        .voice-btn { padding: 10px; border: none; border-radius: 4px; cursor: pointer; font-weight: 500; }
+        .voice-start { background: #34a853; color: white; }
+        .voice-stop { background: #ea4335; color: white; }
+        .voice-repeat { background: #fbbc04; color: white; }
+        .directions-list { list-style: none; padding: 0; }
+        .directions-list li { padding: 12px; border-bottom: 1px solid #eee; display: flex; align-items: center; }
+        .directions-list li:last-child { border-bottom: none; }
+        .step-icon { width: 24px; height: 24px; margin-right: 12px; background: #4285f4; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; }
+        .step-text { flex: 1; }
+        .step-distance { color: #666; font-size: 12px; }
+        .floor-selector { background: #f0f8ff; padding: 15px; border-radius: 4px; margin: 10px 0; border-left: 4px solid #4285f4; }
+        .floor-buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+        .floor-btn { padding: 8px; background: #4285f4; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .floor-btn:hover { background: #3367d6; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🗺️ NED University Navigation</h1>
+            <p>GPS-Based Walking Navigation with Live Tracking</p>
+        </div>
+
+        <div class="nav-controls">
+            <div class="control-group">
+                <label for="startLocation">Starting Location:</label>
+                <select id="startLocation">
+                    <option value="">Choose starting point</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label for="endLocation">Destination:</label>
+                <select id="endLocation">
+                    <option value="">Choose destination</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <button id="getDirections">Get Walking Directions</button>
+            </div>
+            
+            <div class="voice-controls">
+                <button id="useGPSLocation" class="voice-btn voice-start">📍 Use My GPS Location</button>
+                <button id="repeatInstruction" class="voice-btn voice-repeat">🔄 Repeat</button>
+                <button id="stopNavigation" class="voice-btn voice-stop">⏹ Stop</button>
+            </div>
+        </div>
+
+        <div id="floorSelector" class="floor-selector" style="display: none;">
+            <h4>Which floor are you currently on in CSIT?</h4>
+            <div class="floor-buttons">
+                <button class="floor-btn" onclick="selectFloor(1)">1st Floor</button>
+                <button class="floor-btn" onclick="selectFloor(2)">2nd Floor</button>
+                <button class="floor-btn" onclick="selectFloor(3)">3rd Floor</button>
+            </div>
+        </div>
+
+        <div class="map-container">
+            <div id="map"></div>
+        </div>
+
+        <div class="directions-panel">
+            <h3>Walking Directions</h3>
+            <div id="statusDisplay">
+                <div class="status-item status-ready">Map loaded - Select locations to get directions</div>
+            </div>
+            
+            <div class="route-info" id="routeInfo" style="display: none;">
+                <div id="routeSummary"></div>
+                <ul class="directions-list" id="directionsList"></ul>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // NED University locations with exact coordinates
+        const locations = {
+            'NED University Main Gate': [24.9330, 67.1100],
+            'NED University Library': [24.9328, 67.1110],
+            'NED University Admin Block': [24.9325, 67.1120],
+            'CSIT Labs': [24.9314, 67.1140],
+            'CSIT Department Entrance': [24.9314, 67.1140],
+            'CSIT Department': [24.9313, 67.1141],
+            'CSIT Offices': [24.9311, 67.1138],
+            'DMS Cafeteria': [24.9323, 67.1142],
+            'Survey Lab': [24.9305, 67.1140],
+            'NPO Circuit': [24.9309, 67.1142],
+            'Urban Infrastructure Engineering Department': [24.9312, 67.1125],
+            'Civil Engineering Class Rooms': [24.9312, 67.1125],
+            'Fire Lab': [24.9323, 67.1114],
+            'Basketball Court': [24.9324, 67.1165],
+            'Tennis Court': [24.9326, 67.1167],
+            'Convocation Ground': [24.9308, 67.1138],
+            'Civil AV Hall': [24.9305, 67.1130],
+            'Mathematics Department': [24.9312, 67.1135],
+            'Meezan Bank ATM': [24.9323, 67.1142],
+            'Street 1': [24.9310, 67.1145],
+            'Mosque': [24.9328, 67.1110],
+            'NED Medical Centre': [24.9320, 67.1130],
+            'Main Auditorium': [24.9315, 67.1140],
+            'NED Ground': [24.9325, 67.1150],
+            'Football Ground': [24.9330, 67.1155],
+            'Mechanical Engineering Department': [24.9318, 67.1108],
+            'Electrical Engineering Department': [24.9322, 67.1115],
+            'Chemical Engineering Department': [24.9316, 67.1122],
+            'Petroleum Engineering Department': [24.9314, 67.1118],
+            'Industrial Engineering Department': [24.9320, 67.1125],
+            'Biomedical Engineering Department': [24.9317, 67.1132],
+            'Computer Systems Engineering Department': [24.9315, 67.1138],
+            'Software Engineering Department': [24.9313, 67.1142],
+            'Textile Engineering Department': [24.9311, 67.1128],
+            'Metallurgy Engineering Department': [24.9309, 67.1135],
+            'Physics Department': [24.9325, 67.1125],
+            'Chemistry Department': [24.9323, 67.1130],
+            'English Department': [24.9321, 67.1135],
+            'Economics Department': [24.9319, 67.1140],
+            'Management Sciences Department': [24.9317, 67.1145],
+            'Architecture Department': [24.9315, 67.1150],
+            'City Planning Department': [24.9313, 67.1155],
+            'Workshop': [24.9307, 67.1125],
+            'Central Library Reading Hall': [24.9329, 67.1112],
+            'Digital Library': [24.9327, 67.1114],
+            'Seminar Hall': [24.9325, 67.1118],
+            'Conference Room': [24.9323, 67.1122],
+            'Faculty Lounge': [24.9321, 67.1128],
+            'Student Center': [24.9319, 67.1132],
+            'Canteen': [24.9317, 67.1136],
+            'Parking Area A': [24.9332, 67.1095],
+            'Parking Area B': [24.9308, 67.1160],
+            'Security Office': [24.9331, 67.1102]
+        };
+
+        let map, recognition, synth;
+        let currentStep = 'waiting', startLocation = null, endLocation = null;
+        let route = [], stepIndex = 0, userPos = null, posWatcher = null;
+        let isListening = false, liveGPSEnabled = false, userMarker = null;
+        let selectedFloor = null, isCSITStart = false;
+        let lastSpokenStep = -1, isNavigating = false;
+        let lastUserPos = null;
+
+        // Initialize Leaflet map
+        function initMap() {
+            map = L.map('map').setView([24.9320, 67.1130], 16);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            // Add location markers
+            Object.entries(locations).forEach(([name, coords]) => {
+                L.marker(coords)
+                    .addTo(map)
+                    .bindPopup(name);
+            });
+
+            updateStatus('Map loaded successfully', 'ready');
+        }
+
+        // Initialize speech synthesis
+        if ('speechSynthesis' in window) {
+            synth = window.speechSynthesis;
+            synth.getVoices();
+        }
+
+        if ('webkitSpeechRecognition' in window) {
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false;
+            recognition.lang = 'en-US';
+            
+            recognition.onresult = (event) => {
+                const command = event.results[event.results.length - 1][0].transcript.toLowerCase();
+                updateStatus(`Voice: "${command}"`, 'active');
+                processCommand(command);
+            };
+            
+            recognition.onerror = () => {
+                updateStatus('Voice recognition error', 'warning');
+                isListening = false;
+            };
+            
+            recognition.onend = () => {
+                if (isListening) recognition.start();
+            };
+        }
+
+        function speak(text) {
+            console.log('Speaking:', text);
+            if (synth && 'speechSynthesis' in window) {
+                synth.cancel();
+                
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = 0.9;
+                utterance.pitch = 1;
+                utterance.volume = 1;
+                
+                const voices = synth.getVoices();
+                if (voices.length > 0) {
+                    utterance.voice = voices.find(voice => voice.lang.includes('en')) || voices[0];
+                }
+                
+                synth.speak(utterance);
+            }
+            updateStatus(`🔊 ${text}`, 'active');
+        }
+
+        function updateStatus(message, type = 'ready') {
+            const statusDisplay = document.getElementById('statusDisplay');
+            statusDisplay.innerHTML = `<div class="status-item status-${type}">${message}</div>`;
+        }
+
+        function haversine(lat1, lng1, lat2, lng2) {
+            const R = 6371000;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLng/2) * Math.sin(dLng/2);
+            return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        function calculateBearing(lat1, lng1, lat2, lng2) {
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const y = Math.sin(dLng) * Math.cos(lat2 * Math.PI / 180);
+            const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
+                      Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLng);
+            return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        }
+
+        // Detailed route generation with specific left/right instructions
+        function generateSimpleRoute(startName, endName) {
+            const startCoords = locations[startName];
+            const endCoords = locations[endName];
+            
+            if (!startCoords || !endCoords) {
+                updateStatus('Location not found', 'warning');
+                return [];
+            }
+
+            const steps = [];
+            
+            // Add CSIT floor instructions if starting from CSIT
+            if (isCSITStart && selectedFloor) {
+                steps.push({
+                    instruction: generateCSITFloorInstructions(selectedFloor),
+                    distance: '0m',
+                    duration: '1 min',
+                    maneuver: 'stairs',
+                    location: startCoords
+                });
+            }
+            
+            // Get detailed route with specific left/right instructions
+            const detailedSteps = getDetailedRouteInstructions(startName, endName);
+            steps.push(...detailedSteps);
+
+            return steps;
+        }
+        
+        // Detailed route instructions with specific left/right turns
+        function getDetailedRouteInstructions(startName, endName) {
+            const routeKey = `${startName}_${endName}`;
+            
+            // Define detailed routes with specific left/right instructions
+            const detailedRoutes = {
+                'CSIT Labs_DMS Cafeteria': [
+                    { instruction: 'Exit CSIT Labs building', distance: '5m', duration: '10 sec', maneuver: 'exit' },
+                    { instruction: 'Turn right toward NED circular road', distance: '40m', duration: '30 sec', maneuver: 'turn-right' },
+                    { instruction: 'Walk left along the circular road for 80 meters', distance: '80m', duration: '1 min', maneuver: 'turn-left' },
+                    { instruction: 'Your destination DMS Cafeteria is on the right', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'DMS Cafeteria_CSIT Labs': [
+                    { instruction: 'Exit DMS Cafeteria', distance: '5m', duration: '10 sec', maneuver: 'exit' },
+                    { instruction: 'Turn left toward NED circular road', distance: '20m', duration: '15 sec', maneuver: 'turn-left' },
+                    { instruction: 'Walk right along the circular road for 80 meters', distance: '80m', duration: '1 min', maneuver: 'turn-right' },
+                    { instruction: 'Turn left toward CSIT building', distance: '40m', duration: '30 sec', maneuver: 'turn-left' },
+                    { instruction: 'Your destination CSIT Labs is on the left', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'CSIT Department_DMS Cafeteria': [
+                    { instruction: 'Exit CSIT Department office', distance: '5m', duration: '10 sec', maneuver: 'exit' },
+                    { instruction: 'Turn right toward NED circular road', distance: '35m', duration: '25 sec', maneuver: 'turn-right' },
+                    { instruction: 'Walk left along the circular road for 75 meters', distance: '75m', duration: '55 sec', maneuver: 'turn-left' },
+                    { instruction: 'Your destination DMS Cafeteria is on the right', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'DMS Cafeteria_CSIT Department': [
+                    { instruction: 'Exit DMS Cafeteria', distance: '5m', duration: '10 sec', maneuver: 'exit' },
+                    { instruction: 'Turn left toward NED circular road', distance: '20m', duration: '15 sec', maneuver: 'turn-left' },
+                    { instruction: 'Walk right along the circular road for 75 meters', distance: '75m', duration: '55 sec', maneuver: 'turn-right' },
+                    { instruction: 'Turn left toward CSIT Department', distance: '35m', duration: '25 sec', maneuver: 'turn-left' },
+                    { instruction: 'Your destination CSIT Department is on the left', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'NED University Library_CSIT Labs': [
+                    { instruction: 'Exit the library building', distance: '10m', duration: '15 sec', maneuver: 'exit' },
+                    { instruction: 'Turn right toward NED circular road', distance: '50m', duration: '38 sec', maneuver: 'turn-right' },
+                    { instruction: 'Walk left along the circular road for 120 meters', distance: '120m', duration: '1 min 30 sec', maneuver: 'turn-left' },
+                    { instruction: 'Turn left toward CSIT building', distance: '40m', duration: '30 sec', maneuver: 'turn-left' },
+                    { instruction: 'Your destination CSIT Labs is on the left', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'CSIT Labs_NED University Library': [
+                    { instruction: 'Exit CSIT Labs building', distance: '5m', duration: '10 sec', maneuver: 'exit' },
+                    { instruction: 'Turn right toward NED circular road', distance: '40m', duration: '30 sec', maneuver: 'turn-right' },
+                    { instruction: 'Walk right along the circular road for 120 meters', distance: '120m', duration: '1 min 30 sec', maneuver: 'turn-right' },
+                    { instruction: 'Turn left toward the library', distance: '50m', duration: '38 sec', maneuver: 'turn-left' },
+                    { instruction: 'Your destination NED University Library is on the right', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'NED University Admin Block_CSIT Labs': [
+                    { instruction: 'Exit Admin Block', distance: '10m', duration: '15 sec', maneuver: 'exit' },
+                    { instruction: 'Turn left toward NED circular road', distance: '60m', duration: '45 sec', maneuver: 'turn-left' },
+                    { instruction: 'Walk left along the circular road for 100 meters', distance: '100m', duration: '1 min 15 sec', maneuver: 'turn-left' },
+                    { instruction: 'Turn left toward CSIT building', distance: '40m', duration: '30 sec', maneuver: 'turn-left' },
+                    { instruction: 'Your destination CSIT Labs is on the left', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'CSIT Labs_NED University Admin Block': [
+                    { instruction: 'Exit CSIT Labs building', distance: '5m', duration: '10 sec', maneuver: 'exit' },
+                    { instruction: 'Turn right toward NED circular road', distance: '40m', duration: '30 sec', maneuver: 'turn-right' },
+                    { instruction: 'Walk right along the circular road for 100 meters', distance: '100m', duration: '1 min 15 sec', maneuver: 'turn-right' },
+                    { instruction: 'Turn right toward Admin Block', distance: '60m', duration: '45 sec', maneuver: 'turn-right' },
+                    { instruction: 'Your destination NED University Admin Block is on the left', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'Fire Lab_CSIT Labs': [
+                    { instruction: 'Exit Fire Lab', distance: '10m', duration: '15 sec', maneuver: 'exit' },
+                    { instruction: 'Turn right toward NED circular road', distance: '45m', duration: '35 sec', maneuver: 'turn-right' },
+                    { instruction: 'Walk left along the circular road for 90 meters', distance: '90m', duration: '1 min 10 sec', maneuver: 'turn-left' },
+                    { instruction: 'Turn left toward CSIT building', distance: '40m', duration: '30 sec', maneuver: 'turn-left' },
+                    { instruction: 'Your destination CSIT Labs is on the left', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'CSIT Labs_Fire Lab': [
+                    { instruction: 'Exit CSIT Labs building', distance: '5m', duration: '10 sec', maneuver: 'exit' },
+                    { instruction: 'Turn right toward NED circular road', distance: '40m', duration: '30 sec', maneuver: 'turn-right' },
+                    { instruction: 'Walk right along the circular road for 90 meters', distance: '90m', duration: '1 min 10 sec', maneuver: 'turn-right' },
+                    { instruction: 'Turn left toward Fire Lab', distance: '45m', duration: '35 sec', maneuver: 'turn-left' },
+                    { instruction: 'Your destination Fire Lab is on the right', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'Basketball Court_Tennis Court': [
+                    { instruction: 'Exit basketball court area', distance: '5m', duration: '10 sec', maneuver: 'exit' },
+                    { instruction: 'Walk straight along the sports pathway for 25 meters', distance: '25m', duration: '20 sec', maneuver: 'straight' },
+                    { instruction: 'Your destination Tennis Court is straight ahead', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ],
+                'Tennis Court_Basketball Court': [
+                    { instruction: 'Exit tennis court area', distance: '5m', duration: '10 sec', maneuver: 'exit' },
+                    { instruction: 'Walk straight along the sports pathway for 25 meters', distance: '25m', duration: '20 sec', maneuver: 'straight' },
+                    { instruction: 'Your destination Basketball Court is straight ahead', distance: '0m', duration: '0 min', maneuver: 'arrive' }
+                ]
+            };
+            
+            // Check for specific route
+            if (detailedRoutes[routeKey]) {
+                return detailedRoutes[routeKey].map(step => ({
+                    ...step,
+                    location: locations[startName]
+                }));
+            }
+            
+            // Fallback to generic route with left/right instructions
+            const distance = haversine(locations[startName][0], locations[startName][1], 
+                                     locations[endName][0], locations[endName][1]);
+            const bearing = calculateBearing(locations[startName][0], locations[startName][1], 
+                                           locations[endName][0], locations[endName][1]);
+            
+            let direction = 'straight';
+            if (bearing >= 315 || bearing < 45) direction = 'straight';
+            else if (bearing >= 45 && bearing < 135) direction = 'right';
+            else if (bearing >= 135 && bearing < 225) direction = 'straight';
+            else direction = 'left';
+            
+            return [
+                {
+                    instruction: `Exit ${startName}`,
+                    distance: '10m',
+                    duration: '15 sec',
+                    maneuver: 'exit',
+                    location: locations[startName]
+                },
+                {
+                    instruction: `Turn ${direction} toward NED circular road`,
+                    distance: '30m',
+                    duration: '25 sec',
+                    maneuver: `turn-${direction}`,
+                    location: locations[startName]
+                },
+                {
+                    instruction: `Walk along the road for ${Math.round(distance)} meters`,
+                    distance: `${Math.round(distance)}m`,
+                    duration: `${Math.round(distance/80)} min`,
+                    maneuver: 'straight',
+                    location: locations[startName]
+                },
+                {
+                    instruction: `Your destination ${endName} is on the ${direction === 'left' ? 'right' : 'left'}`,
+                    distance: '0m',
+                    duration: '0 min',
+                    maneuver: 'arrive',
+                    location: locations[endName]
+                }
+            ];
+        }
+
+        // Generate CSIT floor instructions
+        function generateCSITFloorInstructions(floor) {
+            const stairSets = {
+                1: 'two sets of stairs',
+                2: 'four sets of stairs', 
+                3: 'six sets of stairs'
+            };
+            
+            return `Come out of the class. Keep the wall on your left and walk all the way to the leftmost side until you reach the staircase. Use the stairs and go down ${stairSets[floor]} to reach the ground floor.`;
+        }
+
+        function selectFloor(floor) {
+            selectedFloor = floor;
+            document.getElementById('floorSelector').style.display = 'none';
+            speak(`Selected floor ${floor}. Getting directions...`);
+            updateStatus(`CSIT Floor ${floor} selected`, 'ready');
+            getDirections(startLocation, endLocation);
+        }
+
+        function checkCSITStart(locationName) {
+            return locationName.includes('CSIT') || locationName.includes('Computer Systems Engineering');
+        }
+
+        function useGPSLocation() {
+            if (navigator.geolocation) {
+                updateStatus('Getting your GPS location...', 'active');
+                navigator.geolocation.getCurrentPosition(pos => {
+                    const userLat = pos.coords.latitude;
+                    const userLng = pos.coords.longitude;
+                    
+                    // Find nearest location
+                    let nearest = null, minDist = Infinity;
+                    for (const [name, coords] of Object.entries(locations)) {
+                        const dist = haversine(userLat, userLng, coords[0], coords[1]);
+                        if (dist < minDist) {
+                            minDist = dist;
+                            nearest = name;
+                        }
+                    }
+                    
+                    if (nearest && minDist < 200) {
+                        startLocation = nearest;
+                        document.getElementById('startLocation').value = nearest;
+                        
+                        if (checkCSITStart(nearest)) {
+                            isCSITStart = true;
+                            document.getElementById('floorSelector').style.display = 'block';
+                            speak(`You are at ${nearest}. Which floor are you on?`);
+                        } else {
+                            speak(`Using your location: ${nearest}. Select destination.`);
+                        }
+                        
+                        // Enable live GPS tracking
+                        enableLiveGPS();
+                        updateStatus(`GPS location: ${nearest}`, 'ready');
+                    } else {
+                        speak('Could not determine your location. Please select manually.');
+                        updateStatus('GPS location not found', 'warning');
+                    }
+                }, () => {
+                    speak('GPS access denied. Please select location manually.');
+                    updateStatus('GPS access denied', 'warning');
+                });
+            }
+        }
+
+        function enableLiveGPS() {
+            if (!liveGPSEnabled && navigator.geolocation) {
+                liveGPSEnabled = true;
+                posWatcher = navigator.geolocation.watchPosition(pos => {
+                    userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                    updateUserMarker();
+                    
+                    // Track GPS movement for instruction progression
+                    if (route.length > 0 && isNavigating) {
+                        trackMovementProgress();
+                    }
+                }, null, { enableHighAccuracy: true, timeout: 10000, maximumAge: 1000 });
+                
+                updateStatus('Live GPS tracking enabled', 'active');
+            }
+        }
+
+        function updateUserMarker() {
+            if (userMarker) map.removeLayer(userMarker);
+            
+            // Blue dot like Google Maps
+            userMarker = L.circleMarker([userPos.lat, userPos.lng], {
+                radius: 10,
+                fillColor: '#4285f4',
+                color: 'white',
+                weight: 3,
+                opacity: 1,
+                fillOpacity: 0.9
+            }).addTo(map);
+            
+            // Add accuracy circle
+            L.circle([userPos.lat, userPos.lng], {
+                radius: 15,
+                fillColor: '#4285f4',
+                color: '#4285f4',
+                weight: 1,
+                opacity: 0.3,
+                fillOpacity: 0.1
+            }).addTo(map);
+            
+            // Center map on user location if navigating
+            if (isNavigating) {
+                map.setView([userPos.lat, userPos.lng], 18);
+            }
+        }
+
+        async function getDirections(startName, endName) {
+            updateStatus('Calculating walking route...', 'active');
+            
+            const steps = generateSimpleRoute(startName, endName);
+            
+            if (steps.length === 0) {
+                updateStatus('Could not calculate route', 'warning');
+                return;
+            }
+
+            displayDirections(startName, endName, steps);
+            drawRoute(startName, endName);
+            startVoiceNavigation(steps);
+            
+            // Auto-enable GPS if not using GPS location
+            if (!liveGPSEnabled) {
+                enableLiveGPS();
+            }
+            
+            const totalDistance = steps.reduce((sum, step) => {
+                const dist = parseInt(step.distance) || 0;
+                return sum + dist;
+            }, 0);
+            const totalTime = Math.round(totalDistance / 80);
+            updateStatus(`✅ Route ready - ${totalDistance}m, ${totalTime} min`, 'ready');
+        }
+
+        function displayDirections(startName, endName, steps) {
+            const routeInfo = document.getElementById('routeInfo');
+            const routeSummary = document.getElementById('routeSummary');
+            const directionsList = document.getElementById('directionsList');
+            
+            const totalDistance = steps.reduce((sum, step) => sum + parseInt(step.distance), 0);
+            const totalTime = Math.round(totalDistance / 80);
+            
+            routeSummary.innerHTML = `
+                <h4>📍 ${startName} → ${endName}</h4>
+                <p><strong>Distance:</strong> ${totalDistance}m • <strong>Time:</strong> ${totalTime} min</p>
+                <p><strong>Mode:</strong> Walking with GPS tracking</p>
+            `;
+            
+            directionsList.innerHTML = '';
+            steps.forEach((step, index) => {
+                const li = document.createElement('li');
+                const icon = getStepIcon(step.maneuver, index + 1);
+                
+                li.innerHTML = `
+                    <div class="step-icon">${icon}</div>
+                    <div class="step-text">
+                        <div>${step.instruction}</div>
+                        <div class="step-distance">${step.distance} • ${step.duration}</div>
+                    </div>
+                `;
+                
+                directionsList.appendChild(li);
+            });
+            
+            routeInfo.style.display = 'block';
+            route = steps;
+        }
+
+        function getStepIcon(maneuver, stepNumber) {
+            switch(maneuver) {
+                case 'turn-left': return '←';
+                case 'turn-right': return '→';
+                case 'turn-straight': 
+                case 'straight': return '↑';
+                case 'arrive': return '🎯';
+                case 'stairs': return '🏢';
+                case 'exit': return '🚪';
+                default: return stepNumber;
+            }
+        }
+
+        function drawRoute(startName, endName) {
+            map.eachLayer(layer => {
+                if (layer instanceof L.Polyline) map.removeLayer(layer);
+            });
+
+            const startCoords = locations[startName];
+            const endCoords = locations[endName];
+            
+            if (startCoords && endCoords) {
+                const routeLine = L.polyline([startCoords, endCoords], {
+                    color: '#4285f4',
+                    weight: 5,
+                    opacity: 0.8
+                }).addTo(map);
+                
+                map.fitBounds(routeLine.getBounds(), { padding: [20, 20] });
+            }
+        }
+
+        function trackMovementProgress() {
+            if (userPos && lastSpokenStep < route.length - 1) {
+                // Store previous position for movement calculation
+                if (lastUserPos) {
+                    // Check if user has moved enough to trigger next instruction
+                    checkProgress();
+                }
+                
+                // Update last known position
+                lastUserPos = { lat: userPos.lat, lng: userPos.lng };
+                
+                updateStatus(`GPS tracking active - Following route step ${lastSpokenStep + 1}/${route.length}`, 'active');
+            }
+        }
+
+        function startVoiceNavigation(steps) {
+            stepIndex = 0;
+            lastSpokenStep = -1;
+            currentStep = 'navigating';
+            isNavigating = true;
+            lastUserPos = null;
+            
+            if (steps.length > 0) {
+                speak(`Starting navigation to ${endLocation}.`);
+                
+                // Speak first instruction immediately
+                setTimeout(() => {
+                    speak(steps[0].instruction);
+                    lastSpokenStep = 0;
+                    updateStatus(`Step 1/${steps.length}: ${steps[0].instruction}`, 'active');
+                    
+                    // Initialize GPS position tracking
+                    if (userPos) {
+                        lastUserPos = { lat: userPos.lat, lng: userPos.lng };
+                    }
+                }, 1500);
+            }
+        }
+
+        function checkProgress() {
+            // Only proceed if GPS tracking is active and we have a current position
+            if (!userPos || !route.length || !isNavigating) return;
+            
+            const nextStepIndex = lastSpokenStep + 1;
+            
+            if (nextStepIndex < route.length) {
+                // Check if user has completed current step based on GPS movement
+                if (hasCompletedCurrentStep()) {
+                    speak(route[nextStepIndex].instruction);
+                    lastSpokenStep = nextStepIndex;
+                    updateStatus(`Step ${nextStepIndex + 1}/${route.length}: ${route[nextStepIndex].instruction}`, 'active');
+                    
+                    // Check if this is the last instruction
+                    if (nextStepIndex === route.length - 1) {
+                        setTimeout(() => {
+                            checkDestinationDirection();
+                        }, 3000);
+                    }
+                }
+            }
+        }
+        
+        function hasCompletedCurrentStep() {
+            if (!userPos || !lastUserPos) return false;
+            
+            // Calculate distance moved since last position
+            const distanceMoved = haversine(lastUserPos.lat, lastUserPos.lng, userPos.lat, userPos.lng);
+            
+            // User needs to move at least 20 meters to complete a step
+            return distanceMoved > 20;
+        }
+        
+        function checkDestinationDirection() {
+            if (!userPos || !endLocation) {
+                speak(`You have reached your destination!`);
+                stopNavigation();
+                return;
+            }
+            
+            const destCoords = locations[endLocation];
+            if (!destCoords) {
+                speak(`You have reached your destination!`);
+                stopNavigation();
+                return;
+            }
+            
+            // Calculate bearing from user to destination
+            const bearing = calculateBearing(userPos.lat, userPos.lng, destCoords[0], destCoords[1]);
+            
+            // Determine direction based on bearing
+            let direction = "";
+            if (bearing >= 315 || bearing < 45) {
+                direction = "straight ahead of you";
+            } else if (bearing >= 45 && bearing < 135) {
+                direction = "to your right";
+            } else if (bearing >= 135 && bearing < 225) {
+                direction = "behind you";
+            } else if (bearing >= 225 && bearing < 315) {
+                direction = "to your left";
+            } else {
+                direction = "nearby";
+            }
+            
+            speak(`You have reached your destination! ${endLocation} is ${direction}.`);
+            stopNavigation();
+        }
+
+        function populateLocationSelects() {
+            const startSelect = document.getElementById('startLocation');
+            const endSelect = document.getElementById('endLocation');
+            
+            Object.keys(locations).forEach(location => {
+                startSelect.add(new Option(location, location));
+                endSelect.add(new Option(location, location));
+            });
+        }
+
+        function processCommand(command) {
+            if (command.includes('use my gps') || command.includes('use gps')) {
+                useGPSLocation();
+            } else if (command.includes('directions') || command.includes('navigate')) {
+                currentStep = 'start';
+                speak('Say starting location or use GPS location');
+            } else if (currentStep === 'start') {
+                setStart(command);
+            } else if (currentStep === 'destination') {
+                setDestination(command);
+            } else if (currentStep === 'floor') {
+                setFloor(command);
+            } else if (command.includes('repeat')) {
+                repeatInstruction();
+            } else if (command.includes('stop')) {
+                stopNavigation();
+            }
+        }
+
+        function setStart(command) {
+            const location = findLocation(command);
+            if (location) {
+                startLocation = location;
+                document.getElementById('startLocation').value = location;
+                
+                if (checkCSITStart(location)) {
+                    isCSITStart = true;
+                }
+                
+                speak(`Starting from ${location}. Say destination.`);
+                currentStep = 'destination';
+            } else {
+                speak('Location not found. Try again.');
+            }
+        }
+
+        function setDestination(command) {
+            const location = findLocation(command);
+            if (location) {
+                endLocation = location;
+                document.getElementById('endLocation').value = location;
+                
+                // Check if we need floor selection for CSIT start
+                if (isCSITStart && !selectedFloor) {
+                    speak(`Going to ${location}. Which floor are you currently on in CSIT? Say first floor, second floor, or third floor.`);
+                    currentStep = 'floor';
+                    return;
+                }
+                
+                speak(`Going to ${location}. Getting directions...`);
+                getDirections(startLocation, endLocation);
+            } else {
+                speak('Destination not found. Try again.');
+            }
+        }
+
+        function setFloor(command) {
+            let floor = null;
+            
+            if (command.includes('first') || command.includes('1st') || command.includes('one')) {
+                floor = 1;
+            } else if (command.includes('second') || command.includes('2nd') || command.includes('two')) {
+                floor = 2;
+            } else if (command.includes('third') || command.includes('3rd') || command.includes('three')) {
+                floor = 3;
+            }
+            
+            if (floor) {
+                selectedFloor = floor;
+                speak(`Floor ${floor} selected. Getting directions...`);
+                updateStatus(`CSIT Floor ${floor} selected`, 'ready');
+                getDirections(startLocation, endLocation);
+            } else {
+                speak('Please say first floor, second floor, or third floor.');
+            }
+        }
+
+        function findLocation(command) {
+            for (const location of Object.keys(locations)) {
+                if (command.includes(location.toLowerCase())) return location;
+            }
+            
+            const keywords = {
+                'library': 'NED University Library',
+                'admin': 'NED University Admin Block',
+                'csit': 'CSIT Labs',
+                'cafeteria': 'DMS Cafeteria',
+                'basketball': 'Basketball Court',
+                'medical': 'NED Medical Centre',
+                'mosque': 'Mosque',
+                'ground': 'NED Ground'
+            };
+            
+            for (const [keyword, location] of Object.entries(keywords)) {
+                if (command.includes(keyword)) return location;
+            }
+            
+            return null;
+        }
+
+        function repeatInstruction() {
+            if (currentStep === 'navigating' && route.length > 0 && lastSpokenStep >= 0 && lastSpokenStep < route.length) {
+                speak(route[lastSpokenStep].instruction);
+            } else {
+                speak('No active navigation instruction to repeat.');
+            }
+        }
+
+        function stopNavigation() {
+            currentStep = 'waiting';
+            isNavigating = false;
+            lastSpokenStep = -1;
+            liveGPSEnabled = false;
+            if (posWatcher) {
+                navigator.geolocation.clearWatch(posWatcher);
+                posWatcher = null;
+            }
+            if (userMarker) {
+                map.removeLayer(userMarker);
+                userMarker = null;
+            }
+            updateStatus('Navigation stopped', 'ready');
+            speak('Navigation stopped');
+        }
+
+        // Event listeners
+        document.getElementById('getDirections').addEventListener('click', () => {
+            startLocation = document.getElementById('startLocation').value;
+            endLocation = document.getElementById('endLocation').value;
+            
+            if (startLocation && endLocation) {
+                if (checkCSITStart(startLocation)) {
+                    isCSITStart = true;
+                    if (!selectedFloor) {
+                        document.getElementById('floorSelector').style.display = 'block';
+                        speak('Which floor are you on in CSIT?');
+                        return;
+                    }
+                }
+                getDirections(startLocation, endLocation);
+            } else {
+                speak('Please select both locations');
+            }
+        });
+
+        document.getElementById('useGPSLocation').addEventListener('click', useGPSLocation);
+        document.getElementById('repeatInstruction').addEventListener('click', repeatInstruction);
+        document.getElementById('stopNavigation').addEventListener('click', stopNavigation);
+
+        // Initialize everything
+        window.addEventListener('load', () => {
+            initMap();
+            populateLocationSelects();
+            
+            navigator.mediaDevices.getUserMedia({audio: true})
+                .then(() => {
+                    setTimeout(() => {
+                        speak('NED Navigation System loaded. Voice ready.');
+                        
+                        if (recognition) {
+                            isListening = true;
+                            recognition.start();
+                            setTimeout(() => {
+                                speak('Say directions to start navigation or use GPS location.');
+                            }, 2000);
+                        }
+                    }, 1000);
+                })
+                .catch(() => {
+                    speak('Microphone access denied. Manual navigation available.');
+                    updateStatus('System ready - Manual navigation only', 'warning');
+                });
+        });
+    </script>
+</body>
+</html>
